@@ -15,7 +15,7 @@ def render_invoice(rows):
     return json.dumps({"total": sum(rows)})
 
 
-def render_invoice_badly(rows, cache=Path("/tmp/invoice-cache.json")):
+def render_invoice_badly(rows, cache: Path):
     """Same function, with a cache somebody added on a Friday."""
     cache.write_text(json.dumps({"total": sum(rows)}))
     return cache.read_text()
@@ -26,11 +26,11 @@ def test_rendering_is_pure(no_effects):
 
 
 @pytest.mark.xfail(reason="demonstrates the failure output", strict=True)
-def test_the_cache_is_caught(effects):
+def test_the_cache_is_caught(effects, tmp_path):
     """`no_effects` would catch this too, but at teardown, which pytest reports
     as an error on a passing test. Calling assert_none yourself fails in the
     body, which is what you want when the point is to show the message."""
-    render_invoice_badly([1, 2, 3])
+    render_invoice_badly([1, 2, 3], tmp_path / "invoice-cache.json")
     effects.assert_none()
 
 

@@ -28,6 +28,14 @@ examples:
 """
 
 
+def _rows(text: str) -> int:
+    """A row count, because a negative one silently drops rows off the report."""
+    value = int(text)
+    if value < 0:
+        raise argparse.ArgumentTypeError(f"--limit cannot be negative, got {value}")
+    return value
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="consequence",
@@ -45,7 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--policy", type=Path, help="policy file")
         p.add_argument("--show-reads", action="store_true", help="include reads in the report")
         p.add_argument("--json", action="store_true")
-        p.add_argument("--limit", type=int, default=0, help="rows to show, 0 for all")
+        p.add_argument("--limit", type=_rows, default=0, help="rows to show, 0 for all")
 
     plan = sub.add_parser("plan", help="run without touching anything, and report")
     target(plan)
@@ -135,6 +143,10 @@ def _run_target(args: argparse.Namespace) -> BaseException | None:
     except SystemExit as exit_error:
         if exit_error.code not in (0, None):
             return exit_error
+    except KeyboardInterrupt:
+        # BaseException below would otherwise swallow it, and the report would
+        # claim the program failed rather than that somebody stopped it.
+        raise
     except BaseException as error:
         return error
     return None
@@ -199,6 +211,13 @@ def _execute(args: argparse.Namespace) -> int:
             blocking += [e for e in session.destructive if e.allowed]
         return 1 if blocking else 0
     if session.denied:
+        return 1
+    # A program that raised did not do what it was asked, and a shell script or
+    # a CI step reading only the exit status would otherwise be told it did.
+    # Its own SystemExit code is kept, since it chose that number for a reason.
+    if isinstance(failure, SystemExit) and isinstance(failure.code, int):
+        return failure.code
+    if failure is not None:
         return 1
     return 0
 

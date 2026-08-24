@@ -93,6 +93,17 @@ def _relative(path: str) -> str:
     return path
 
 
+#: Where a target stops being readable and starts being a wall.
+TARGET_WIDTH = 52
+
+
+def _shorten(target: str) -> str:
+    """Keep the end of a long path, since that is the part that identifies it."""
+    if len(target) <= TARGET_WIDTH:
+        return target
+    return "..." + target[-(TARGET_WIDTH - 3) :]
+
+
 def render(
     effects: Sequence[Effect],
     *,
@@ -118,8 +129,11 @@ def render(
         lines.append(style("  no effects", "dim", enabled=enabled))
         return "\n".join(lines)
 
-    targets = [_relative(e.target) for e in chosen]
-    width = min(max((len(t) for t in targets), default=0), 52)
+    # Truncated before the width is measured, not after: capping the width
+    # alone leaves a long path or URL stretching its own line to whatever length
+    # it happens to be, and the columns stop lining up.
+    targets = [_shorten(_relative(e.target)) for e in chosen]
+    width = max((len(t) for t in targets), default=0)
     for effect, target in zip(chosen, targets, strict=False):
         mark = MARKS.get(effect.severity, "?")
         colour_name = COLOURS.get(effect.severity, "")

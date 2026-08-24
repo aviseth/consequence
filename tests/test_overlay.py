@@ -113,7 +113,20 @@ def test_touched_lists_everything_that_changed(tmp_path):
     overlay.write(tmp_path / "a", b"")
     overlay.delete(tmp_path / "b")
     overlay.mkdir(tmp_path / "c")
-    assert len(overlay.touched) == 4  # a, b, c, and a's parent directory
+    assert len(overlay.touched) == 3
+
+
+def test_writing_into_a_directory_that_exists_does_not_claim_to_create_it(tmp_path):
+    overlay = Overlay()
+    overlay.write(tmp_path / "a", b"")
+    assert str(tmp_path) not in overlay.directories
+    assert "directory" not in overlay.summary()
+
+
+def test_writing_into_a_directory_that_does_not_exist_does(tmp_path):
+    overlay = Overlay()
+    overlay.write(tmp_path / "new" / "a", b"")
+    assert str(tmp_path / "new") in overlay.directories
 
 
 def test_an_untouched_overlay_summarises_as_nothing():

@@ -287,3 +287,50 @@ def test_a_planned_append_reads_back_the_line_endings_text_mode_would_give(tmp_p
             handle.write("second\n")
         with open(target) as handle:
             assert handle.read() == "first\nsecond\n"
+
+
+def test_an_inner_session_leaving_does_not_uninstall_the_outer_one(tmp_path):
+    """Otherwise the outer session records nothing while believing it is watching."""
+    target = tmp_path / "written.txt"
+    with consequence.plan() as outer:
+        with consequence.audit():
+            pass
+        assert installed()
+        target.write_text("planned")
+    assert not installed()
+    assert not target.exists()
+    assert any(e.kind == FILE_WRITE for e in outer.effects)
+
+
+def test_the_internal_marker_nests():
+    from consequence.intercept import _Internal, _reentrant
+
+    with _Internal():
+        with _Internal():
+            assert _reentrant()
+        assert _reentrant(), "an inner block leaving must not un-mark the outer one"
+    assert not _reentrant()
+
+
+def test_subprocess_call_returns_an_exit_status_in_plan_mode():
+    """A CompletedProcess here reads as non-zero, so every shell-out looks failed."""
+    with consequence.plan():
+        assert subprocess.call(["git", "status"]) == 0
+        assert subprocess.check_call(["git", "status"]) == 0
+
+
+def test_check_output_returns_bytes_or_text_as_asked():
+    with consequence.plan():
+        assert subprocess.check_output(["git", "rev-parse"]) == b""
+        assert subprocess.check_output(["git", "rev-parse"], text=True) == ""
+
+
+def test_subprocess_run_still_returns_a_completed_process():
+    with consequence.plan():
+        result = subprocess.run(["git", "status"], check=False)
+        assert result.returncode == 0
+
+
+def test_os_system_returns_a_status_in_plan_mode():
+    with consequence.plan():
+        assert os.system("echo hi") == 0

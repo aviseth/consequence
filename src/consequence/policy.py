@@ -264,7 +264,17 @@ def _strings(value: Any, where: str) -> list[str]:
 
 def from_dict(data: dict[str, Any], source: Path | None = None) -> Policy:
     """Build a policy from already-parsed data."""
-    default = data.get("default", ALLOW)
+    if "default" not in data:
+        # The module docstring promises the stance is a choice you have to make;
+        # quietly picking "allow" here broke that promise in the one direction
+        # that matters, since a guard policy that forgot the line would permit
+        # every domain it did not mention.
+        raise PolicyError(
+            f"a policy must say default = {ALLOW!r} or default = {DENY!r}. "
+            "There is no safe guess: 'allow' watches without stopping anything, "
+            "'deny' refuses whatever the rules below do not name."
+        )
+    default = data["default"]
     if default not in (ALLOW, DENY):
         raise PolicyError(f"default must be {ALLOW!r} or {DENY!r}, not {default!r}")
 

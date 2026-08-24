@@ -22,6 +22,8 @@ Three modes, one interception layer.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from consequence.effects import Effect, Frame, Severity
 from consequence.errors import Blocked, ConsequenceError, Denied
 from consequence.policy import Policy, permissive, read_only
@@ -63,7 +65,7 @@ def plan(
     )
 
 
-def guard(policy: Policy | str, **kwargs: object) -> Session:
+def guard(policy: Policy | str | Path, **kwargs: object) -> Session:
     """Let effects happen, but only the ones ``policy`` allows.
 
     A path is accepted for convenience, since a policy usually lives in a file
@@ -71,7 +73,7 @@ def guard(policy: Policy | str, **kwargs: object) -> Session:
     """
     from consequence.policy import load
 
-    resolved = load(policy) if isinstance(policy, str) else policy
+    resolved = load(policy) if isinstance(policy, (str, Path)) else policy
     return Session(mode=Mode.GUARD, policy=resolved, **kwargs)  # type: ignore[arg-type]
 
 

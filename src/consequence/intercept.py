@@ -38,19 +38,32 @@ _busy = threading.local()
 _installed: list[tuple[Any, str, Any]] = []
 _install_lock = threading.Lock()
 
+#: How many sessions are relying on the patches. Sessions nest — a plan inside an
+#: audit, a fixture inside a session — and the inner one leaving must not strip
+#: the interceptors out from under the outer one, which would leave it recording
+#: nothing while it believes it is watching.
+_depth = 0
+
 
 def _reentrant() -> bool:
     return getattr(_busy, "flag", False)
 
 
 class _Internal:
-    """Marks a block as consequence's own work, so it is not recorded."""
+    """Marks a block as consequence's own work, so it is not recorded.
+
+    Restores the previous value rather than clearing the flag, so that an inner
+    block leaving does not un-mark the outer one. Clearing it would put the rest
+    of the outer block back under interception, which for anything that reads a
+    file means recursing through the patched ``open``.
+    """
 
     def __enter__(self) -> None:
+        self._previous = getattr(_busy, "flag", False)
         _busy.flag = True
 
     def __exit__(self, *exc: object) -> None:
-        _busy.flag = False
+        _busy.flag = self._previous
 
 
 class InterceptionFailed(RuntimeError):
@@ -68,7 +81,7 @@ def _patch(module: Any, name: str, replacement: Callable[..., Any]) -> None:
     try:
         setattr(module, name, replacement)
     except (AttributeError, TypeError) as error:
-        uninstall()
+        _tear_down()
         raise InterceptionFailed(
             f"could not intercept {getattr(module, '__name__', module)}.{name}: {error}. "
             "Refusing to continue, because a missing interceptor means a plan that "
@@ -209,8 +222,13 @@ def _make_open(real: Callable[..., Any]) -> Callable[..., Any]:
     return opener
 
 
-def _simple(kind: str, arg: int = 0, detail: str = "") -> Callable[..., Any]:
-    """Wrap a function whose target is one of its positional arguments."""
+def _simple(kind: str, arg: int = 0, detail: str = "", planned: Any = None) -> Callable[..., Any]:
+    """Wrap a function whose target is one of its positional arguments.
+
+    ``planned`` is what the wrapper hands back in plan mode. None suits the
+    functions that return nothing anyway; ``os.system`` returns an exit status,
+    and None there reads as failure to every caller that checks it.
+    """
 
     def wrap(real: Callable[..., Any]) -> Callable[..., Any]:
         def replacement(*args: Any, **kwargs: Any) -> Any:
@@ -225,7 +243,7 @@ def _simple(kind: str, arg: int = 0, detail: str = "") -> Callable[..., Any]:
             if session.planning:
                 with _Internal():
                     _simulate(session, kind, text, args)
-                return None
+                return planned
             return real(*args, **kwargs)
 
         return replacement
@@ -317,7 +335,26 @@ class _PlannedProcess:
         return None
 
 
-def _make_run(real: Callable[..., Any]) -> Callable[..., Any]:
+def _planned_result(name: str, args: Any, kwargs: dict[str, Any]) -> Any:
+    """What the real function would have returned, in the shape it returns it.
+
+    One stand-in for all four of run, call, check_call and check_output is not
+    good enough: ``subprocess.call(cmd) != 0`` on a CompletedProcess is always
+    true, so a planned program takes the failure branch of every shell-out it
+    does and the plan describes a run that never happens. Each name gets its own
+    type back.
+    """
+    if name == "check_output":
+        text = bool(
+            kwargs.get("text") or kwargs.get("encoding") or kwargs.get("universal_newlines")
+        )
+        return "" if text else b""
+    if name in ("call", "check_call"):
+        return 0
+    return subprocess.CompletedProcess(args=args, returncode=0, stdout=b"", stderr=b"")
+
+
+def _make_run(real: Callable[..., Any], name: str) -> Callable[..., Any]:
     def replacement(args: Any, *rest: Any, **kwargs: Any) -> Any:
         session = active()
         if session is None or _reentrant():
@@ -327,7 +364,7 @@ def _make_run(real: Callable[..., Any]) -> Callable[..., Any]:
             effect = session.check(fx.PROCESS_SPAWN, argv.split(" ")[0], argv)
         session.enforce(effect)
         if session.planning:
-            return subprocess.CompletedProcess(args=args, returncode=0, stdout=b"", stderr=b"")
+            return _planned_result(name, args, kwargs)
         return real(args, *rest, **kwargs)
 
     return replacement
@@ -484,8 +521,10 @@ def _make_setenv(real: Callable[..., Any]) -> Callable[..., Any]:
 
 
 def install() -> None:
-    """Put every interceptor in place. Idempotent per session."""
+    """Put every interceptor in place. Nested sessions share one set."""
+    global _depth
     with _install_lock:
+        _depth += 1
         if _installed:
             return
 
@@ -515,12 +554,12 @@ def install() -> None:
                 _patch(shutil, name, _two_path(fx.FILE_COPY)(getattr(shutil, name)))
         _patch(shutil, "move", _two_path(fx.FILE_MOVE)(shutil.move))
 
-        _patch(os, "system", _simple(fx.PROCESS_SPAWN)(os.system))
+        _patch(os, "system", _simple(fx.PROCESS_SPAWN, planned=0)(os.system))
         if hasattr(os, "kill"):
             _patch(os, "kill", _simple(fx.PROCESS_SIGNAL)(os.kill))
         for name in ("run", "call", "check_call", "check_output"):
             if hasattr(subprocess, name):
-                _patch(subprocess, name, _make_run(getattr(subprocess, name)))
+                _patch(subprocess, name, _make_run(getattr(subprocess, name), name))
         _patch(subprocess, "Popen", _make_popen(subprocess.Popen))
 
         import socket
@@ -599,9 +638,28 @@ def _repoint_pathlib_accessor() -> None:
         _installed.append((accessor, name, cached))
 
 
+def _tear_down() -> None:
+    """Unconditionally remove every patch, whatever the depth.
+
+    Used when installation itself fails part-way. Counting down politely from a
+    half-installed state would leave the process patched with an interceptor set
+    nobody can name.
+    """
+    global _depth
+    _depth = 0
+    while _installed:
+        module, name, original = _installed.pop()
+        with contextlib.suppress(Exception):
+            setattr(module, name, original)
+
+
 def uninstall() -> None:
-    """Put everything back, in reverse order, whatever happened."""
+    """Release one session's hold, and put everything back once none are left."""
+    global _depth
     with _install_lock:
+        _depth = max(0, _depth - 1)
+        if _depth:
+            return
         while _installed:
             module, name, original = _installed.pop()
             with contextlib.suppress(Exception):

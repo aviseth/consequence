@@ -95,7 +95,9 @@ def test_executescript_is_intercepted_too(database):
 
 
 def test_schema_changes_can_be_refused_by_policy(database):
-    policy = from_dict({"database": {"allow": ["*"], "allow_schema_changes": False}})
+    policy = from_dict(
+        {"default": "allow", "database": {"allow": ["*"], "allow_schema_changes": False}}
+    )
     with consequence.guard(policy):
         connection = sqlite3.connect(database)
         with pytest.raises(sqlite3.DatabaseError):

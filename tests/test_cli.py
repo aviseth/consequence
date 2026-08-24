@@ -124,7 +124,8 @@ def test_json_output_carries_the_counts(project, capsys):
 
 
 def test_arguments_after_a_dash_dash_reach_the_program(project, capsys):
-    source = 'import sys, pathlib\npathlib.Path("argv.txt").write_text(sys.argv[1])\n'
+    """The script itself checks argv, so a wrong value fails rather than passing quietly."""
+    source = 'import sys\nassert sys.argv[1:] == ["hello"], sys.argv\n'
     main(["plan", "--json", write(project, source), "--", "hello"])
     report = json.loads(capsys.readouterr().out)
     assert report["failed"] is None
@@ -171,3 +172,31 @@ def test_the_argv_the_program_saw_is_put_back(project):
     before = list(sys.argv)
     main(["plan", write(project, HARMLESS)])
     assert sys.argv == before
+
+
+def test_a_failed_target_is_a_failed_command(project, capsys):
+    source = "raise SystemExit(3)\n"
+    assert main(["plan", write(project, source)]) == 3
+
+
+def test_an_exception_in_the_target_is_a_failed_command(project, capsys):
+    source = "raise ValueError('nope')\n"
+    assert main(["audit", write(project, source)]) == 1
+
+
+def test_a_target_that_exits_cleanly_is_not_a_failure(project):
+    assert main(["plan", write(project, "raise SystemExit(0)\n")]) == 0
+
+
+def test_a_negative_limit_is_rejected(project, capsys):
+    with pytest.raises(SystemExit):
+        main(["plan", "--limit", "-1", write(project, HARMLESS)])
+    assert "cannot be negative" in capsys.readouterr().err
+
+
+def test_a_policy_file_can_be_a_path_object(tmp_path):
+    import consequence
+
+    path = tmp_path / "safe.toml"
+    path.write_text('default = "deny"\n[filesystem]\nread = ["**"]\n')
+    assert consequence.guard(path).policy.default == "deny"

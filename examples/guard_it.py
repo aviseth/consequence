@@ -1,5 +1,7 @@
 """Guard mode: the program runs for real, but only inside a policy.
 
+build() sets up examples/demo first, outside the session and for real.
+
 The first thing safe.toml does not allow raises Denied at the line that tried
 it, with the rule that refused it. Everything before that point really happened,
 which is the honest shape of a policy failure and not something to hide.

@@ -115,3 +115,17 @@ def test_an_empty_table_is_empty():
 def test_severity_ordering_is_the_reading_order():
     assert Severity.READ < Severity.CREATE < Severity.MODIFY < Severity.DESTROY
     assert Severity.DESTROY < Severity.EXTERNAL
+
+
+def test_a_very_long_target_does_not_stretch_its_line():
+    long = "/" + "d/" * 60 + "file.txt"
+    out = plain(render([effect(fx.FILE_DELETE, long)], colour=False))
+    assert len(out.splitlines()[0]) < 140
+    assert "file.txt" in out, "the end identifies the file, so keep it"
+
+
+def test_a_long_target_does_not_widen_the_short_ones():
+    long = "/" + "d/" * 60 + "file.txt"
+    out = plain(render([effect(fx.FILE_DELETE, long), effect(fx.FILE_DELETE, "/a")], colour=False))
+    first, second = out.splitlines()[:2]
+    assert abs(len(first) - len(second)) < 10

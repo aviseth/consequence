@@ -21,7 +21,8 @@ def effect(kind, target, detail=""):
 
 
 def policy(**data):
-    return from_dict(data)
+    """A policy for a test, with a stance unless the test is about the stance."""
+    return from_dict({"default": "allow", **data})
 
 
 def test_the_default_stance_is_respected():
@@ -97,7 +98,7 @@ def test_network_rules_match_the_host():
 
 
 def test_schema_changes_can_be_switched_off_wholesale():
-    p = from_dict({"database": {"allow": ["*"], "allow_schema_changes": False}})
+    p = from_dict({"default": "allow", "database": {"allow": ["*"], "allow_schema_changes": False}})
     assert not p.decide(effect(DB_SCHEMA, "app.db", "drop table users")).allowed
 
 
@@ -120,18 +121,18 @@ def test_permissive_allows_everything():
 
 
 def test_a_single_string_is_accepted_where_a_list_is_expected():
-    p = from_dict({"filesystem": {"write": "/tmp/**"}})
+    p = from_dict({"default": "allow", "filesystem": {"write": "/tmp/**"}})
     assert p.decide(effect(FILE_WRITE, "/tmp/a")).allowed
 
 
 def test_a_section_that_is_not_a_table_is_rejected():
     with pytest.raises(PolicyError, match="must be a table"):
-        from_dict({"filesystem": "everything"})
+        from_dict({"default": "allow", "filesystem": "everything"})
 
 
 def test_a_rule_that_is_not_strings_is_rejected():
     with pytest.raises(PolicyError, match="list of strings"):
-        from_dict({"filesystem": {"write": [1, 2]}})
+        from_dict({"default": "allow", "filesystem": {"write": [1, 2]}})
 
 
 def test_loading_from_a_file(tmp_path):
@@ -166,3 +167,9 @@ def test_a_pattern_whose_literal_part_is_a_bare_directory_still_resolves():
     policy = from_dict({"default": "deny", "filesystem": {"write": [f"{root.as_posix()}/*.txt"]}})
     assert policy.decide(effect("file.write", str(root / "a.txt"))).allowed
     assert not policy.decide(effect("file.write", str(root / "sub" / "a.txt"))).allowed
+
+
+def test_a_policy_with_no_default_is_rejected():
+    """The stance is a choice; guessing it is how a guard policy quietly opens up."""
+    with pytest.raises(PolicyError, match="must say default"):
+        from_dict({"filesystem": {"write": ["/tmp/**"]}})

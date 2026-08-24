@@ -21,6 +21,17 @@ from typing import Any
 
 from consequence import effects as fx
 from consequence.effects import Severity
+from consequence.errors import ConsequenceError
+
+
+class TooLargeToPlan(ConsequenceError):
+    """A database too big to copy into memory for a plan.
+
+    A configured limit rather than an allocation failure, so not a MemoryError:
+    the CLI turns package errors into a message and exit code 2, and a
+    MemoryError would come out as a traceback.
+    """
+
 
 #: Authorizer action code -> (effect kind, severity, verb). SQLite passes many
 #: more; the ones absent from this table are reads and bookkeeping.
@@ -155,15 +166,16 @@ def make_connect(real: Any) -> Any:
             return connection
 
         with _Internal():
-            copy = real(":memory:")
             if name != ":memory:" and os.path.exists(name):
                 size = os.path.getsize(name)
                 if size > MAX_PLAN_COPY_BYTES:
-                    raise MemoryError(
+                    raise TooLargeToPlan(
                         f"{name} is {size / 1e9:.1f} GB, too large to copy into memory for "
                         "a plan. Point the program at a smaller database, or use audit "
                         "mode against a restored snapshot."
                     )
+            copy = real(":memory:")
+            if name != ":memory:" and os.path.exists(name):
                 source = real(name)
                 try:
                     source.backup(copy)

@@ -41,8 +41,11 @@ class Overlay:
         key = _key(path)
         self.files[key] = data
         self.deleted.discard(key)
+        # Only a parent that is not already there counts as a directory this
+        # run would create. Recording every parent made a plan that writes one
+        # file into an existing directory claim it would create that directory.
         parent = str(Path(key).parent)
-        if parent:
+        if parent and parent != key and not os.path.isdir(parent):
             self.directories.add(parent)
 
     def append(self, path: str | os.PathLike[str], data: bytes) -> None:

@@ -1,7 +1,10 @@
 """Plan mode from the library, rather than from the command line.
 
-Nothing here reaches the disk, the network or the database. The program still
-reads back its own writes, because plan mode hands them to it out of an overlay.
+build() runs first and for real: it creates examples/demo on disk, because a
+plan of a program that has nothing to operate on is not worth reading. Only
+cleanup_agent.main() runs under plan mode, and nothing it does reaches the disk,
+the network or the database. It still reads back its own writes, because plan
+mode hands them to it out of an overlay.
 """
 
 import os
