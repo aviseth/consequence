@@ -94,11 +94,14 @@ def shorten_path(path: str) -> str:
         return path
     # normpath rather than resolve: it collapses the doubled separator a
     # sqlite:////path URL leaves behind, without turning /tmp into /private/tmp
-    # and making every macOS path unrecognisable to the person reading it. It
-    # keeps a leading "//" though, which POSIX reserves and nobody means, so
-    # that one is collapsed here.
+    # and making every macOS path unrecognisable to the person reading it.
     tidy = os.path.normpath(path)
-    return "/" + tidy.lstrip("/") if tidy.startswith("//") else tidy
+    # normpath keeps a leading "//", which POSIX reserves and nobody means. On
+    # Windows the same shape is a UNC path, where the two separators name a host
+    # and dropping one points the path somewhere else entirely.
+    if os.sep == "/" and tidy.startswith("//"):
+        return "/" + tidy.lstrip("/")
+    return tidy
 
 
 #: Where a target stops being readable and starts being a wall.
