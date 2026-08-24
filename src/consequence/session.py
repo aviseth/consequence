@@ -106,7 +106,12 @@ class Session:
             kind=kind,
             target=target,
             detail=detail,
-            severity=severity or severity_of(kind),
+            # `is None`, not truthiness: Severity.READ is 0, so `severity or
+            # severity_of(kind)` throws away an explicit READ and records the
+            # per-kind default instead. Every caller that overrides today
+            # happens to pass a severity matching its kind's default, so this
+            # was invisible; the next one would not have been.
+            severity=severity_of(kind) if severity is None else severity,
             frames=frames,
             internal=internal,
             extra=dict(extra),

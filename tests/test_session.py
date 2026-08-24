@@ -206,3 +206,10 @@ def test_the_report_carries_both_the_lines_and_the_bottom_line():
     text = session.report()
     assert "/tmp/gone" in text
     assert "Plan: 1 to destroy" in text
+
+
+def test_an_explicit_read_severity_survives():
+    """Severity.READ is 0, so a truthiness fallback silently replaced it."""
+    session = Session(mode=Mode.PLAN)
+    effect = session.check(fx.FILE_WRITE, "x", severity=Severity.READ)
+    assert effect.severity is Severity.READ
