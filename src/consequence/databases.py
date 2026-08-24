@@ -16,6 +16,7 @@ in a wrapper somebody could bypass.
 
 from __future__ import annotations
 
+import os
 import sqlite3
 from typing import Any
 
@@ -128,6 +129,31 @@ def authorizer_for(connection_name: str) -> Any:
 MAX_PLAN_COPY_BYTES = 512 * 1024 * 1024
 
 
+def _file_behind(database: str, uri: bool) -> str | None:
+    """The file this connection would open, or None if there is not one.
+
+    With ``uri=True`` the name is something like ``file:app.db?mode=ro``, which
+    no amount of os.path.exists will recognise. Missing that meant plan mode
+    silently handed the program an empty database and every query came back
+    with "no such table" -- a plan for a program that does not exist.
+    """
+    if database == ":memory:" or not database:
+        return None
+    path = database
+    if uri or database.startswith("file:"):
+        from urllib.parse import unquote, urlparse
+
+        parsed = urlparse(database)
+        if parsed.scheme != "file":
+            return None
+        if "mode=memory" in (parsed.query or ""):
+            return None
+        path = unquote(parsed.path or parsed.netloc)
+        if not path:
+            return None
+    return path if os.path.exists(path) else None
+
+
 def make_connect(real: Any) -> Any:
     """Wrap ``sqlite3.connect``, and in plan mode hand back a private copy.
 
@@ -146,8 +172,6 @@ def make_connect(real: Any) -> Any:
     """
 
     def connect(database: Any = ":memory:", *args: Any, **kwargs: Any) -> Any:
-        import os
-
         from consequence.intercept import _Internal, _reentrant
         from consequence.session import active
 
@@ -165,18 +189,25 @@ def make_connect(real: Any) -> Any:
             connection.set_authorizer(authorizer_for(name))
             return connection
 
+        source_path = _file_behind(name, kwargs.get("uri", False))
         with _Internal():
-            if name != ":memory:" and os.path.exists(name):
-                size = os.path.getsize(name)
+            if source_path is not None:
+                size = os.path.getsize(source_path)
                 if size > MAX_PLAN_COPY_BYTES:
                     raise TooLargeToPlan(
-                        f"{name} is {size / 1e9:.1f} GB, too large to copy into memory for "
+                        f"{source_path} is {size / 1e9:.1f} GB, too large to copy into memory "
+                        "for "
                         "a plan. Point the program at a smaller database, or use audit "
                         "mode against a restored snapshot."
                     )
-            copy = real(":memory:")
-            if name != ":memory:" and os.path.exists(name):
-                source = real(name)
+            # The caller's own arguments, because the copy has to behave like
+            # the connection they asked for. check_same_thread=False in
+            # particular: without it the copy raises ProgrammingError the moment
+            # a second thread touches it, while the real run is fine.
+            options = {k: v for k, v in kwargs.items() if k != "uri"}
+            copy = real(":memory:", *args, **options)
+            if source_path is not None:
+                source = real(name, *args, **kwargs)
                 try:
                     source.backup(copy)
                 finally:

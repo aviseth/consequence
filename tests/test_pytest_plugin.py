@@ -208,3 +208,16 @@ def test_a_fixture_writing_on_its_own_behalf_is_not_the_tests_doing(pytester):
             assert scratch.is_dir()
         """,
     ).assert_outcomes(passed=1)
+
+
+def test_a_filesystem_root_allowlist_does_not_reject_everything(pytester):
+    """Path("/") once built "//" and failed every path underneath it."""
+    run(
+        pytester,
+        """
+        import os
+        def test_anywhere(effects, tmp_path):
+            (tmp_path / "out.txt").write_text("x")
+            effects.assert_only_under(os.path.sep)
+        """,
+    ).assert_outcomes(passed=1)

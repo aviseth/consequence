@@ -85,7 +85,12 @@ class Overlay:
         key = _key(path)
         if key in self.files:
             return self.files[key]
-        if key in self.deleted:
+        # A deleted tree records only its root, so a file inside it has to be
+        # checked against the roots too. Without that, a planned rmtree left
+        # exists() saying the file was gone while read() handed back its real
+        # contents off disk, and the program took a branch the real run never
+        # would -- which is the exact failure this module exists to prevent.
+        if key in self.deleted or self._under_deleted(key):
             return None
         try:
             return Path(key).read_bytes()

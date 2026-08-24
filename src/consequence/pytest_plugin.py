@@ -71,13 +71,15 @@ class EffectRecorder:
 
     def assert_only_under(self, *roots: str | os.PathLike[str]) -> None:
         """Every write lands somewhere under one of ``roots``."""
-        allowed = [str(Path(r).resolve()) for r in roots]
+        # rstrip the separator before appending one: a root of "/" would
+        # otherwise build "//" and reject every path underneath it.
+        allowed = [str(Path(r).resolve()).rstrip(os.sep) or os.sep for r in roots]
         offenders = [
             e
             for e in self.writes()
             if not any(
                 str(Path(e.target).resolve()) == root
-                or str(Path(e.target).resolve()).startswith(root + os.sep)
+                or str(Path(e.target).resolve()).startswith(root.rstrip(os.sep) + os.sep)
                 for root in allowed
             )
         ]

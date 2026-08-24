@@ -219,3 +219,18 @@ def test_flags_survive_between_dash_dash_and_a_module(project, capsys):
         sys.modules.pop("mypkg", None)
         sys.modules.pop("mypkg.__main__", None)
     assert json.loads(capsys.readouterr().out)["failed"] is None
+
+
+def test_a_log_line_that_is_json_but_not_an_object_is_skipped(project, capsys):
+    """`.get` on a list raises AttributeError, which main() does not catch."""
+    (project / "odd.jsonl").write_text('[1, 2]\n"text"\n{"kind": "file.write", "target": null}\n')
+    assert main(["log", "odd.jsonl"]) == 0
+    assert "file.write" in capsys.readouterr().out
+
+
+def test_the_script_directory_is_not_left_on_sys_path(project, capsys):
+    import sys
+
+    before = list(sys.path)
+    main(["plan", write(project, HARMLESS)])
+    assert sys.path == before

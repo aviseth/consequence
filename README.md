@@ -146,7 +146,7 @@ git clone https://github.com/aviseth/consequence
 cd consequence
 uv run python examples/setup_demo.py
 cd examples/demo
-consequence plan cleanup_agent.py
+uv run consequence plan cleanup_agent.py
 ```
 
 ## Worked example: a real migration tool

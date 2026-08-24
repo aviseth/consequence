@@ -15,7 +15,7 @@ looks fine. It is not.
 
 ```bash
 cd examples/demo
-consequence plan cleanup_agent.py
+uv run consequence plan cleanup_agent.py
 ```
 
 ## From Python

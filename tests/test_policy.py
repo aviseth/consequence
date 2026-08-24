@@ -173,3 +173,12 @@ def test_a_policy_with_no_default_is_rejected():
     """The stance is a choice; guessing it is how a guard policy quietly opens up."""
     with pytest.raises(PolicyError, match="must say default"):
         from_dict({"filesystem": {"write": ["/tmp/**"]}})
+
+
+def test_allow_schema_changes_belongs_to_the_database_section():
+    """Accepting it anywhere let [filesystem] switch off database schema changes."""
+    assert not from_dict(
+        {"default": "allow", "database": {"allow_schema_changes": False}}
+    ).allow_schema_changes
+    with pytest.raises(PolicyError, match="belongs under \\[database\\]"):
+        from_dict({"default": "allow", "filesystem": {"allow_schema_changes": False}})

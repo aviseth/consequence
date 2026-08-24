@@ -22,16 +22,33 @@ import json
 import shutil
 import subprocess
 import sys
+from collections import Counter
 from pathlib import Path
 
 
+def fingerprint(path: Path) -> str:
+    """One line describing an entry completely enough to notice a change.
+
+    Content alone is not enough. A plan can create an empty directory, move a
+    symlink, or chmod a file without any file's bytes changing, and a
+    content-only manifest calls that "nothing happened" -- which is exactly the
+    reassurance this script exists to withhold.
+    """
+    # lstat throughout: a symlink's own mode and target matter, and following it
+    # would report the thing it points at instead.
+    if path.is_symlink():
+        return f"symlink -> {path.readlink()}"
+    if path.is_dir():
+        return f"dir {oct(path.lstat().st_mode)}"
+    if path.is_file():
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        return f"file {oct(path.lstat().st_mode)} {digest}"
+    return "other"
+
+
 def manifest(root: Path) -> dict[str, str]:
-    """Every file under root, by content. The part a run cannot fake."""
-    return {
-        str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest()
-        for path in sorted(root.rglob("*"))
-        if path.is_file()
-    }
+    """Every entry under root: files, directories, symlinks, and their modes."""
+    return {str(entry.relative_to(root)): fingerprint(entry) for entry in sorted(root.rglob("*"))}
 
 
 def consequence_argv(mode: str, target: list[str]) -> list[str]:
@@ -67,8 +84,13 @@ def effects(mode: str, target: list[str], cwd: Path) -> list[dict]:
 
 
 def identity(effect: dict) -> tuple[str, str, str]:
-    """Two effects are the same effect if these three things match."""
-    return (effect["kind"], Path(effect["target"]).name, effect["detail"])
+    """Two effects are the same effect if these three things match.
+
+    The full target, not its basename: two different files called config.toml in
+    two different directories are two different effects, and folding them
+    together hides a plan that named the wrong one.
+    """
+    return (effect["kind"], effect["target"], effect["detail"])
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -109,9 +131,11 @@ def main(argv: list[str] | None = None) -> int:
         for name in touched[:10]:
             print(f"            {name}")
 
-    predicted = {identity(e) for e in planned}
-    happened = {identity(e) for e in real}
-    missed = sorted(happened - predicted)
+    # Counters rather than sets: a plan that predicted one write where the real
+    # run did three has not predicted the real run.
+    predicted = Counter(identity(e) for e in planned)
+    happened = Counter(identity(e) for e in real)
+    missed = sorted((happened - predicted).elements())
     if not missed:
         print(f"fidelity  every one of the {len(happened)} real effect(s) was predicted")
     else:
@@ -120,7 +144,7 @@ def main(argv: list[str] | None = None) -> int:
         for kind, name, detail in missed[:15]:
             print(f"            {kind:<14} {name}  {detail}")
 
-    surplus = sorted(predicted - happened)
+    surplus = sorted((predicted - happened).elements())
     if surplus:
         # Not a failure. A plan is allowed to be cautious, and a program that
         # branches on the clock or on a fresh directory will differ between runs.

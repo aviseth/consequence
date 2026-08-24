@@ -233,20 +233,40 @@ def _make_open(real: Callable[..., Any]) -> Callable[..., Any]:
     return opener
 
 
-def _simple(kind: str, arg: int = 0, detail: str = "", planned: Any = None) -> Callable[..., Any]:
-    """Wrap a function whose target is one of its positional arguments.
+#: What a target is called when it is passed by keyword. Nothing here is
+#: cosmetic: reading the target from args[0] alone meant os.remove(path="x")
+#: fell through to the real function, which deleted the file for real during a
+#: plan and recorded nothing at all. An interceptor that can be stepped around
+#: by spelling the call differently is not an interceptor.
+_UNSET = object()
+
+
+def _simple(
+    kind: str,
+    arg: int = 0,
+    detail: str = "",
+    planned: Any = None,
+    keyword: str = "path",
+) -> Callable[..., Any]:
+    """Wrap a function whose target is one of its arguments.
 
     ``planned`` is what the wrapper hands back in plan mode. None suits the
     functions that return nothing anyway; ``os.system`` returns an exit status,
     and None there reads as failure to every caller that checks it.
+
+    ``keyword`` is the name the target goes by, for callers that pass it that
+    way. Positional first, keyword second, and if it is absent altogether the
+    call is malformed and belongs to the real function to reject.
     """
 
     def wrap(real: Callable[..., Any]) -> Callable[..., Any]:
         def replacement(*args: Any, **kwargs: Any) -> Any:
             session = active()
-            if session is None or _reentrant() or len(args) <= arg:
+            if session is None or _reentrant():
                 return real(*args, **kwargs)
-            target = args[arg]
+            target = args[arg] if len(args) > arg else kwargs.get(keyword, _UNSET)
+            if target is _UNSET:
+                return real(*args, **kwargs)
             text = os.fspath(target) if isinstance(target, os.PathLike) else str(target)
             with _Internal():
                 effect = session.check(kind, text, detail)
@@ -317,15 +337,17 @@ def _simulate(session: Any, kind: str, target: str, args: tuple[Any, ...]) -> No
         overlay.delete_tree(target)
     elif kind is fx.DIR_CREATE:
         overlay.mkdir(target)
-    elif kind in (fx.FILE_MOVE, fx.FILE_COPY) and len(args) > 1:
+    elif kind in (fx.FILE_MOVE, fx.FILE_COPY, fx.FILE_LINK) and len(args) > 1:
         destination = args[1]
         text = os.fspath(destination) if isinstance(destination, os.PathLike) else str(destination)
         if kind is fx.FILE_MOVE:
             overlay.move(target, text)
         else:
+            # Copy and link both leave the source where it is. Simulating a link
+            # as a move deleted it from the overlay, so a planned
+            # os.symlink(a, b) made the program see a as missing.
             data = overlay.read(target)
-            if data is not None:
-                overlay.write(text, data)
+            overlay.write(text, data if data is not None else b"")
 
 
 def _two_path(kind: str) -> Callable[..., Any]:
@@ -362,18 +384,37 @@ def _argv_text(args: Any) -> str:
 
 
 class _PlannedProcess:
-    """Stands in for a process that was never started."""
+    """Stands in for a process that was never started.
 
-    def __init__(self, argv: str) -> None:
+    Shaped by the same kwargs the real Popen was given. A stand-in that always
+    hands back bytes makes ``Popen(cmd, stdout=PIPE, text=True).communicate()[0]``
+    return bytes during a plan, and the first ``.strip()`` on it raises
+    TypeError somewhere that has nothing to do with the process.
+    """
+
+    def __init__(self, argv: str, kwargs: dict[str, Any] | None = None) -> None:
+        options = kwargs or {}
         self.args = argv
         self.returncode = 0
         self.pid = -1
-        self.stdout = None
-        self.stderr = None
-        self.stdin = None
+        self._text = bool(
+            options.get("text") or options.get("encoding") or options.get("universal_newlines")
+        )
+        self._empty: Any = "" if self._text else b""
+        # Only the streams that were asked for. Code reading proc.stdout when it
+        # did not request a pipe should get None, exactly as it really would.
+        self.stdout = io.StringIO() if self._text else io.BytesIO()
+        self.stderr: Any = io.StringIO() if self._text else io.BytesIO()
+        self.stdin: Any = io.StringIO() if self._text else io.BytesIO()
+        if options.get("stdout") is None:
+            self.stdout = None  # type: ignore[assignment]
+        if options.get("stderr") is None:
+            self.stderr = None
+        if options.get("stdin") is None:
+            self.stdin = None
 
     def communicate(self, *_a: Any, **_k: Any) -> tuple[Any, Any]:
-        return (b"", b"")
+        return (self._empty, self._empty)
 
     def wait(self, *_a: Any, **_k: Any) -> int:
         return 0
@@ -438,7 +479,7 @@ def _make_popen(real: Any) -> Any:
             effect = session.check(fx.PROCESS_SPAWN, argv.split(" ")[0], argv)
         session.enforce(effect)
         if session.planning:
-            return _PlannedProcess(argv)
+            return _PlannedProcess(argv, kwargs)
         return real(args, *rest, **kwargs)
 
     return replacement
@@ -603,9 +644,12 @@ def install() -> None:
         for name in ("mkdir", "makedirs"):
             _patch(os, name, _make_mkdir(getattr(os, name), name))
 
-        for name in ("rename", "replace", "link", "symlink"):
+        for name in ("rename", "replace"):
             if hasattr(os, name):
                 _patch(os, name, _two_path(fx.FILE_MOVE)(getattr(os, name)))
+        for name in ("link", "symlink"):
+            if hasattr(os, name):
+                _patch(os, name, _two_path(fx.FILE_LINK)(getattr(os, name)))
 
         _patch(shutil, "rmtree", _simple(fx.DIR_DELETE)(shutil.rmtree))
         for name in ("copy", "copy2", "copyfile", "copytree"):
@@ -613,7 +657,6 @@ def install() -> None:
                 _patch(shutil, name, _two_path(fx.FILE_COPY)(getattr(shutil, name)))
         _patch(shutil, "move", _two_path(fx.FILE_MOVE)(shutil.move))
 
-        _patch(os, "system", _simple(fx.PROCESS_SPAWN, planned=0)(os.system))
         if hasattr(os, "kill"):
             _patch(os, "kill", _simple(fx.PROCESS_SIGNAL)(os.kill))
         for name in ("run", "call", "check_call", "check_output"):

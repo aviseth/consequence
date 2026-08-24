@@ -1,6 +1,7 @@
 """SQLite, intercepted through the authorizer rather than by reading SQL."""
 
 import sqlite3
+import threading
 
 import pytest
 
@@ -150,3 +151,37 @@ def test_a_real_delete_is_still_reported(database):
         connection = sqlite3.connect(database)
         connection.execute("DELETE FROM sessions")
     assert [e.kind for e in run.effects if e.kind == DB_MUTATE]
+
+
+def test_plan_mode_keeps_the_connect_arguments_it_was_given(tmp_path):
+    """check_same_thread=False on the real call and not on the copy is a
+    ProgrammingError the moment a second thread touches it."""
+    path = tmp_path / "app.db"
+    sqlite3.connect(path).close()
+    with consequence.plan():
+        connection = sqlite3.connect(path, check_same_thread=False)
+        done = []
+
+        def touch():
+            connection.execute("SELECT 1")
+            done.append(True)
+
+        thread = threading.Thread(target=touch)
+        thread.start()
+        thread.join()
+    assert done == [True]
+
+
+def test_plan_mode_finds_the_database_behind_a_uri(tmp_path):
+    """os.path.exists never recognises file:app.db?mode=ro, so the copy came
+    back empty and every query failed with 'no such table'."""
+    path = tmp_path / "app.db"
+    seed = sqlite3.connect(path)
+    seed.execute("CREATE TABLE t (id INTEGER)")
+    seed.execute("INSERT INTO t VALUES (1)")
+    seed.commit()
+    seed.close()
+
+    with consequence.plan():
+        connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        assert connection.execute("SELECT id FROM t").fetchall() == [(1,)]

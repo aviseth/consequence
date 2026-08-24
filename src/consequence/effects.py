@@ -24,6 +24,7 @@ FILE_APPEND = "file.append"
 FILE_DELETE = "file.delete"
 FILE_MOVE = "file.move"
 FILE_COPY = "file.copy"
+FILE_LINK = "file.link"
 DIR_CREATE = "dir.create"
 DIR_DELETE = "dir.delete"
 PERM_CHANGE = "perm.change"
@@ -70,6 +71,7 @@ SEVERITY: dict[str, Severity] = {
     FILE_DELETE: Severity.DESTROY,
     FILE_MOVE: Severity.MODIFY,
     FILE_COPY: Severity.CREATE,
+    FILE_LINK: Severity.CREATE,
     DIR_CREATE: Severity.CREATE,
     DIR_DELETE: Severity.DESTROY,
     PERM_CHANGE: Severity.MODIFY,
@@ -169,6 +171,7 @@ _VERBS = {
     FILE_DELETE: "delete",
     FILE_MOVE: "move",
     FILE_COPY: "copy",
+    FILE_LINK: "link",
     DIR_CREATE: "create directory",
     DIR_DELETE: "delete directory",
     PERM_CHANGE: "change permissions on",

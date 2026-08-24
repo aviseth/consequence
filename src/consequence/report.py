@@ -231,7 +231,7 @@ def table(headers: Sequence[str], rows: Iterable[Sequence[str]], *, aligns: str 
         return ""
     widths = [len(h) for h in headers]
     for row in body:
-        for i, cell in enumerate(row):
+        for i, cell in enumerate(row[: len(widths)]):
             widths[i] = max(widths[i], len(plain(cell)))
     aligns = (aligns + "l" * len(headers))[: len(headers)]
 

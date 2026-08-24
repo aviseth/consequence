@@ -111,14 +111,26 @@ def test_json_carries_everything_needed_to_read_the_run_back():
 
 
 def test_stdlib_frames_are_filtered_out_of_the_call_site():
-    """The interesting line is the caller's, not json's or pathlib's."""
+    """The interesting line is the caller's, not json's or pathlib's.
+
+    The value has to be one json cannot serialize, or ``default`` is never
+    called and the test proves nothing about frames inside the stdlib.
+    """
     import json
 
     session = Session(mode=Mode.PLAN)
-    captured = []
-    json.dumps({"k": 1}, default=lambda _: captured.append(session.check(fx.FILE_WRITE, "x")))
-    session.check(fx.FILE_WRITE, "x")
-    assert session.effects[-1].origin.file.endswith("test_session.py")
+
+    def default(_value):
+        # Called from inside json.encoder, so every frame above this one is
+        # stdlib until the test's own frame.
+        session.check(fx.FILE_WRITE, "from-inside-json")
+        return ""
+
+    json.dumps({"k": object()}, default=default)
+
+    [effect] = [e for e in session.effects if e.target == "from-inside-json"]
+    assert effect.origin.file.endswith("test_session.py")
+    assert not any("json" in f.file for f in effect.frames)
 
 
 def test_a_frameless_run_still_records_something():

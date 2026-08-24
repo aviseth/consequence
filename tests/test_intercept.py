@@ -15,6 +15,7 @@ from consequence.effects import (
     DIR_CREATE,
     DIR_DELETE,
     FILE_DELETE,
+    FILE_LINK,
     FILE_READ,
     FILE_WRITE,
     PROCESS_SPAWN,
@@ -97,8 +98,9 @@ def test_plan_mode_does_not_delete(tmp_path):
     target.write_text("x")
     with consequence.plan() as run:
         os.remove(target)
-        assert not Path(target).exists() or True  # overlay knows; disk untouched
-    assert target.exists()
+        assert not run.overlay.exists(target), "the program should see it gone"
+        assert run.overlay.read(target) is None, "and reading it should agree"
+    assert target.exists(), "while the disk is untouched"
     assert run.effects[0].kind == FILE_DELETE
     assert run.effects[0].destructive
 
@@ -409,3 +411,50 @@ def test_a_denial_names_the_file_the_way_the_report_does(tmp_path, monkeypatch):
     message = str(caught.value)
     assert "sub" in message
     assert str(tmp_path) not in message
+
+
+def test_a_planned_rmtree_hides_the_files_inside_it(tmp_path):
+    """exists() and read() have to agree, or the program takes a branch the real run would not."""
+    tree = tmp_path / "tree"
+    (tree / "nested").mkdir(parents=True)
+    inside = tree / "nested" / "file.txt"
+    inside.write_text("still on disk")
+
+    with consequence.plan() as run:
+        shutil.rmtree(tree)
+        assert not run.overlay.exists(inside)
+        assert run.overlay.read(inside) is None
+    assert inside.read_text() == "still on disk"
+
+
+def test_a_target_passed_by_keyword_is_still_intercepted(tmp_path):
+    """os.remove(path=...) once fell through and deleted the file during a plan."""
+    target = tmp_path / "victim.txt"
+    target.write_text("important")
+    with consequence.plan() as run:
+        os.remove(path=str(target))
+    assert target.exists()
+    assert [e for e in run.effects if e.kind == FILE_DELETE]
+
+
+def test_rmtree_by_keyword_is_intercepted_too(tmp_path):
+    tree = tmp_path / "tree"
+    tree.mkdir()
+    (tree / "a.txt").write_text("x")
+    with consequence.plan() as run:
+        shutil.rmtree(path=str(tree))
+    assert tree.exists()
+    assert [e for e in run.effects if e.kind == DIR_DELETE]
+
+
+def test_a_planned_symlink_does_not_remove_its_source(tmp_path):
+    """Simulating a link as a move deleted the source out of the overlay."""
+    source = tmp_path / "real.txt"
+    source.write_text("payload")
+    link = tmp_path / "link.txt"
+
+    with consequence.plan() as run:
+        os.symlink(str(source), str(link))
+        assert run.overlay.read(source) == b"payload"
+    assert not link.exists()
+    assert run.effects[0].kind == FILE_LINK

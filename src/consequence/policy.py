@@ -36,6 +36,7 @@ from consequence.effects import (
     FILE_APPEND,
     FILE_COPY,
     FILE_DELETE,
+    FILE_LINK,
     FILE_MOVE,
     FILE_READ,
     FILE_WRITE,
@@ -58,6 +59,7 @@ DOMAIN: dict[str, str] = {
     FILE_DELETE: "filesystem",
     FILE_MOVE: "filesystem",
     FILE_COPY: "filesystem",
+    FILE_LINK: "filesystem",
     DIR_CREATE: "filesystem",
     DIR_DELETE: "filesystem",
     PERM_CHANGE: "filesystem",
@@ -78,6 +80,7 @@ FILE_VERB: dict[str, str] = {
     FILE_WRITE: "write",
     FILE_APPEND: "write",
     FILE_COPY: "write",
+    FILE_LINK: "write",
     DIR_CREATE: "write",
     FILE_MOVE: "write",
     PERM_CHANGE: "write",
@@ -287,11 +290,17 @@ def from_dict(data: dict[str, Any], source: Path | None = None) -> Policy:
             raise PolicyError(f"[{domain}] must be a table, not {type(section).__name__}")
         rules = {}
         for key, value in section.items():
-            if key == "allow_schema_changes":
+            # Only where it is documented. Accepting it under [filesystem] meant
+            # a policy could switch off database schema changes from a section
+            # that has nothing to do with databases, and the key silently never
+            # became a rule.
+            if key == "allow_schema_changes" and domain == "database":
                 if not isinstance(value, bool):
                     raise PolicyError("database.allow_schema_changes must be true or false")
                 policy.allow_schema_changes = value
                 continue
+            if key == "allow_schema_changes":
+                raise PolicyError(f"allow_schema_changes belongs under [database], not [{domain}]")
             rules[key] = _strings(value, f"{domain}.{key}")
         setattr(policy, domain, rules)
     return policy

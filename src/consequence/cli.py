@@ -9,6 +9,7 @@ it is also the honest limit of the approach, which the README states plainly.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import runpy
 import sys
@@ -145,8 +146,17 @@ def _run_target(args: argparse.Namespace) -> BaseException | None:
         else:
             script = str(Path(args.script).resolve())
             sys.argv = [script, *argv]
-            sys.path.insert(0, str(Path(script).parent))
-            runpy.run_path(script, run_name="__main__")
+            # Removed again below. main() is importable and the test suite calls
+            # it many times in one process; leaving entries behind grows sys.path
+            # and lets a later run import a module from an earlier script's
+            # directory.
+            parent = str(Path(script).parent)
+            sys.path.insert(0, parent)
+            try:
+                runpy.run_path(script, run_name="__main__")
+            finally:
+                with contextlib.suppress(ValueError):
+                    sys.path.remove(parent)
     except SystemExit as exit_error:
         if exit_error.code not in (0, None):
             return exit_error
@@ -169,9 +179,14 @@ def _execute(args: argparse.Namespace) -> int:
 
     session = _session(args)
     original_argv = list(sys.argv)
-    with session:
-        failure = _run_target(args)
-    sys.argv = original_argv
+    try:
+        with session:
+            failure = _run_target(args)
+    finally:
+        # finally, because _run_target re-raises KeyboardInterrupt and
+        # session.__exit__ can raise too. main() turns Ctrl-C into exit code
+        # 130, so without this the caller carries on with the target's argv.
+        sys.argv = original_argv
 
     if getattr(args, "log", None):
         args.log.parent.mkdir(parents=True, exist_ok=True)
@@ -240,9 +255,14 @@ def _log(args: argparse.Namespace) -> int:
         if not line.strip():
             continue
         try:
-            rows.append(json.loads(line))
+            row = json.loads(line)
         except ValueError:
             continue
+        # A line like [1, 2] or "text" parses without error, and .get on it
+        # raises AttributeError, which main() does not catch. The file is one
+        # the user names, so both are reachable.
+        if isinstance(row, dict):
+            rows.append(row)
 
     if args.kind:
         rows = [r for r in rows if r.get("kind") == args.kind]
@@ -260,10 +280,10 @@ def _log(args: argparse.Namespace) -> int:
             ["severity", "kind", "target", "where"],
             [
                 (
-                    r.get("severity", ""),
-                    r.get("kind", ""),
-                    r.get("target", "")[:48],
-                    r.get("where", ""),
+                    str(r.get("severity") or ""),
+                    str(r.get("kind") or ""),
+                    str(r.get("target") or "")[:48],
+                    str(r.get("where") or ""),
                 )
                 for r in rows
             ],
