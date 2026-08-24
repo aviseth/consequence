@@ -235,3 +235,55 @@ def test_nothing_is_intercepted_when_no_session_is_active(tmp_path):
     target.write_text("no session, no interception")
     assert target.read_text() == "no session, no interception"
     assert consequence.active() is None
+
+
+def test_pathlib_writes_are_intercepted(tmp_path):
+    """3.10's pathlib keeps its own copy of io.open, so patching io was not enough."""
+    target = tmp_path / "via_pathlib.txt"
+    with consequence.plan() as run:
+        target.write_text("planned")
+        assert target.read_text() == "planned"
+    assert not target.exists()
+    assert any(e.kind == FILE_WRITE and e.target.endswith("via_pathlib.txt") for e in run.effects)
+
+
+def test_pathlib_deletes_are_intercepted(tmp_path):
+    target = tmp_path / "gone.txt"
+    target.write_text("still here")
+    with consequence.plan() as run:
+        target.unlink()
+    assert target.read_text() == "still here"
+    assert any(e.kind == FILE_DELETE for e in run.effects)
+
+
+def test_pathlib_mkdir_is_intercepted(tmp_path):
+    made = tmp_path / "new"
+    with consequence.plan() as run:
+        made.mkdir()
+    assert not made.exists()
+    assert any(e.kind == DIR_CREATE for e in run.effects)
+
+
+def test_the_accessor_is_put_back_afterwards():
+    """Leaving 3.10's pathlib pointed at a torn-down interceptor is worse than not hooking it."""
+    import pathlib as pathlib_module
+
+    accessor = getattr(pathlib_module, "_normal_accessor", None)
+    if accessor is None:
+        pytest.skip("no accessor on this version")
+    before = accessor.open
+    with consequence.plan():
+        assert accessor.open is not before
+    assert accessor.open is before
+
+
+def test_a_planned_append_reads_back_the_line_endings_text_mode_would_give(tmp_path):
+    """On Windows the file on disk holds \\r\\n, and a real read would not show it."""
+    target = tmp_path / "log.txt"
+    with open(target, "w") as handle:
+        handle.write("first\n")
+    with consequence.plan():
+        with open(target, "a") as handle:
+            handle.write("second\n")
+        with open(target) as handle:
+            assert handle.read() == "first\nsecond\n"

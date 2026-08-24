@@ -1,3 +1,6 @@
+import tempfile
+from pathlib import Path
+
 import pytest
 
 from consequence.effects import (
@@ -149,3 +152,17 @@ def test_broken_toml_is_a_policy_error(tmp_path):
 def test_a_missing_file_is_a_policy_error(tmp_path):
     with pytest.raises(PolicyError, match="could not be read"):
         load(tmp_path / "nope.toml")
+
+
+def test_a_forward_slash_pattern_works_where_the_separator_is_a_backslash():
+    """Policies are written with forward slashes on every platform."""
+    root = Path(tempfile.gettempdir()).resolve()
+    policy = from_dict({"default": "deny", "filesystem": {"write": [f"{root.as_posix()}/**"]}})
+    assert policy.decide(effect("file.write", str(root / "sub" / "a.txt"))).allowed
+
+
+def test_a_pattern_whose_literal_part_is_a_bare_directory_still_resolves():
+    root = Path(tempfile.gettempdir()).resolve()
+    policy = from_dict({"default": "deny", "filesystem": {"write": [f"{root.as_posix()}/*.txt"]}})
+    assert policy.decide(effect("file.write", str(root / "a.txt"))).allowed
+    assert not policy.decide(effect("file.write", str(root / "sub" / "a.txt"))).allowed

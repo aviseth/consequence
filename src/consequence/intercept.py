@@ -109,21 +109,48 @@ def _open_kind(mode: str) -> tuple[str, Severity]:
     return fx.FILE_READ, Severity.READ
 
 
+def _decode_text(data: bytes, encoding: str | None) -> str:
+    """Bytes as text mode would hand them over, line endings included.
+
+    Text mode with the default ``newline=None`` turns ``\r\n`` and a lone
+    ``\r`` into ``\n`` on the way in. Skipping that step makes a plan on
+    Windows show the program the line endings the disk happens to have rather
+    than the ones it would actually read, and an append then comes back with a
+    stray ``\r`` in the middle of it.
+    """
+    text = data.decode(encoding or "utf-8", "replace")
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _encode_text(text: str, encoding: str | None) -> bytes:
+    """Text as text mode would put it on disk, ``os.linesep`` and all."""
+    if os.linesep != "\n":
+        text = text.replace("\n", os.linesep)
+    return text.encode(encoding or "utf-8", "replace")
+
+
 class _PlannedFile(io.StringIO):
     """A file that is not a file. On close, its contents go to the overlay."""
 
-    def __init__(self, session: Any, path: str, append: bool, initial: str = "") -> None:
+    def __init__(
+        self,
+        session: Any,
+        path: str,
+        append: bool,
+        initial: str = "",
+        encoding: str | None = None,
+    ) -> None:
         super().__init__(initial)
         if append and initial:
             self.seek(0, io.SEEK_END)
         self._session = session
         self._path = path
         self._append = append
+        self._encoding = encoding
 
     def close(self) -> None:
         if not self.closed:
-            data = self.getvalue().encode("utf-8", "replace")
-            self._session.overlay.write(self._path, data)
+            self._session.overlay.write(self._path, _encode_text(self.getvalue(), self._encoding))
         super().close()
 
 
@@ -166,7 +193,7 @@ def _make_open(real: Callable[..., Any]) -> Callable[..., Any]:
                 return real(file, mode, *args, **kwargs)
             if "b" in mode:
                 return io.BytesIO(data)
-            return io.StringIO(data.decode(kwargs.get("encoding") or "utf-8", "replace"))
+            return io.StringIO(_decode_text(data, kwargs.get("encoding")))
 
         session.enforce(effect)
         append = "a" in mode
@@ -174,7 +201,10 @@ def _make_open(real: Callable[..., Any]) -> Callable[..., Any]:
             existing = session.overlay.read(path) if append else None
         if "b" in mode:
             return _PlannedBinaryFile(session, path, append, existing or b"")
-        return _PlannedFile(session, path, append, (existing or b"").decode("utf-8", "replace"))
+        encoding = kwargs.get("encoding")
+        return _PlannedFile(
+            session, path, append, _decode_text(existing or b"", encoding), encoding
+        )
 
     return opener
 
@@ -516,6 +546,57 @@ def install() -> None:
         _patch(sqlite3, "connect", make_connect(sqlite3.connect))
 
         _patch(type(os.environ), "__setitem__", _make_setenv(type(os.environ).__setitem__))
+
+        _repoint_pathlib_accessor()
+
+
+#: Where 3.10's pathlib cached each function it uses.
+_ACCESSOR_SOURCES: dict[str, Any] = {
+    "open": io,
+    "unlink": os,
+    "rmdir": os,
+    "mkdir": os,
+    "rename": os,
+    "replace": os,
+    "link": os,
+    "symlink": os,
+    "chmod": os,
+}
+
+
+def _repoint_pathlib_accessor() -> None:
+    """Point 3.10's pathlib at the patched functions instead of its own copies.
+
+    On 3.10, ``pathlib`` reads ``io.open`` and the ``os`` functions once at
+    class-definition time and keeps them on a private accessor object. Patching
+    the modules afterwards therefore does nothing at all, and
+    ``Path.write_text`` writes straight to disk during a plan. CI on 3.10 is
+    what found that; every other version calls ``os`` and ``io`` directly and
+    has no accessor to fix.
+
+    The replacements go on the singleton instance rather than on the class. They
+    are ordinary Python functions, so as class attributes they would bind on
+    access and arrive with the accessor as their first argument, which the
+    cached builtins never did.
+    """
+    import pathlib
+
+    accessor = getattr(pathlib, "_normal_accessor", None)
+    if accessor is None:
+        return
+    for name, module in _ACCESSOR_SOURCES.items():
+        patched = getattr(module, name, None)
+        cached = getattr(accessor, name, None)
+        # Only re-point what is genuinely intercepted, and only where pathlib
+        # really is holding its own copy.
+        if patched is None or cached is None:
+            continue
+        if not hasattr(patched, "__consequence_original__"):
+            continue
+        if cached is not original_of(patched):
+            continue
+        setattr(accessor, name, patched)
+        _installed.append((accessor, name, cached))
 
 
 def uninstall() -> None:

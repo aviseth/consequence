@@ -24,7 +24,7 @@ from typing import Any
 if sys.version_info >= (3, 11):
     import tomllib
 else:  # pragma: no cover - exercised only on 3.10
-    import tomli as tomllib  # type: ignore[import-not-found]
+    import tomli as tomllib  # type: ignore[import-not-found, unused-ignore]
 
 from consequence.effects import (
     DB_MUTATE,
@@ -183,7 +183,18 @@ def _path_matches(target: str, pattern: str) -> bool:
     ``/tmp/**`` would otherwise match nothing at all, which is the worst kind of
     policy bug: it fails open on the allow list and silently.
     """
-    return _glob(_resolve(target), _resolve_pattern(pattern))
+    return _glob(_slashes(_resolve(target)), _slashes(_resolve_pattern(pattern)))
+
+
+def _slashes(path: str) -> str:
+    """One separator, so the globber has one thing to reason about.
+
+    Policies are written with forward slashes whatever the platform, because
+    that is what a TOML file full of paths looks like everywhere. Windows then
+    hands back native separators from resolution, and a pattern ends up spelled
+    two ways in the same string.
+    """
+    return path.replace("\\", "/") if os.sep == "\\" else path
 
 
 def _resolve(path: str) -> str:
@@ -208,7 +219,7 @@ def _resolve_pattern(pattern: str) -> str:
     if not head:
         return expanded
     # Resolve only whole directory components, so "/tmp/log*" resolves "/tmp/".
-    boundary = head.rfind(os.sep)
+    boundary = max(head.rfind("/"), head.rfind(os.sep))
     if boundary == -1:
         return _resolve(head) + tail if not tail else _resolve(".") + os.sep + expanded
     literal, remainder = head[: boundary + 1], head[boundary + 1 :]
