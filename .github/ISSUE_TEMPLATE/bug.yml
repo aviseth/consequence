@@ -1,0 +1,25 @@
+name: Something else is broken
+description: A crash, a wrong exit code, a policy that does not do what it reads like
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected instead
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce it
+      description: A program, a policy file, and the command you ran
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: "consequence 0.1.0, Python 3.12.4, Ubuntu 24.04"
+    validations:
+      required: true

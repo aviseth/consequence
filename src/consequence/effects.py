@@ -128,11 +128,22 @@ class Effect:
     def destructive(self) -> bool:
         return self.severity >= Severity.DESTROY
 
-    def describe(self) -> str:
-        """One line, in the tense that matches whether it happened."""
+    def describe(self, *, short: bool = False) -> str:
+        """One line naming what this effect is.
+
+        ``short`` shortens a path against the working directory, the way the
+        report does. Worth having because the exception message is the thing
+        somebody reads first, and an absolute path to a file three directories
+        below where they are standing buries the filename at the end of a line.
+        """
         verb = _VERBS.get(self.kind, self.kind)
         detail = f" {self.detail}" if self.detail else ""
-        return f"{verb} {self.target}{detail}"
+        target = self.target
+        if short:
+            from consequence.report import shorten_path
+
+            target = shorten_path(target)
+        return f"{verb} {target}{detail}"
 
     def to_json(self) -> dict[str, Any]:
         return {

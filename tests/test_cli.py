@@ -200,3 +200,22 @@ def test_a_policy_file_can_be_a_path_object(tmp_path):
     path = tmp_path / "safe.toml"
     path.write_text('default = "deny"\n[filesystem]\nread = ["**"]\n')
     assert consequence.guard(path).policy.default == "deny"
+
+
+def test_flags_survive_between_dash_dash_and_a_module(project, capsys):
+    """argparse eats the -- and the script positional then eats the first flag."""
+    (project / "mypkg").mkdir()
+    (project / "mypkg" / "__init__.py").write_text("")
+    (project / "mypkg" / "__main__.py").write_text(
+        'import sys\nassert sys.argv[1:] == ["--url", "sqlite:///x.db", "up"], sys.argv\n'
+    )
+    import sys
+
+    sys.path.insert(0, str(project))
+    try:
+        main(["plan", "--json", "-m", "mypkg", "--", "--url", "sqlite:///x.db", "up"])
+    finally:
+        sys.path.remove(str(project))
+        sys.modules.pop("mypkg", None)
+        sys.modules.pop("mypkg.__main__", None)
+    assert json.loads(capsys.readouterr().out)["failed"] is None

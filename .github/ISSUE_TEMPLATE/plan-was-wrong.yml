@@ -1,0 +1,42 @@
+name: The plan was wrong
+description: An effect happened that the plan missed, or was reported and never happens
+labels: ["fidelity"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the most valuable kind of report for this project. A plan that
+        understates what code does is the one failure that makes the tool worse
+        than not using it.
+
+        `examples/fidelity_check.py` produces most of what is asked for below.
+  - type: textarea
+    id: what
+    attributes:
+      label: What the plan said, and what actually happened
+      placeholder: |
+        The plan showed 3 effects. The real run also deleted ./cache, which was
+        not in the plan.
+    validations:
+      required: true
+  - type: textarea
+    id: program
+    attributes:
+      label: The smallest program that shows it
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: "`consequence plan --json`, and what the real run did"
+      render: shell
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`consequence --version`, `python -V`, and your OS"
+      placeholder: "consequence 0.1.0, Python 3.12.4, macOS 15"
+    validations:
+      required: true

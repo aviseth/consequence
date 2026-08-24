@@ -129,3 +129,10 @@ def test_a_long_target_does_not_widen_the_short_ones():
     out = plain(render([effect(fx.FILE_DELETE, long), effect(fx.FILE_DELETE, "/a")], colour=False))
     first, second = out.splitlines()[:2]
     assert abs(len(first) - len(second)) < 10
+
+
+def test_a_doubled_separator_is_collapsed_for_display():
+    """A sqlite:////path URL leaves one behind, and it reads as a typo."""
+    out = plain(render([effect(fx.FILE_WRITE, "//tmp/somewhere/app.db")], colour=False))
+    assert "/tmp/somewhere/app.db" in out
+    assert "//tmp" not in out

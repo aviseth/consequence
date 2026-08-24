@@ -74,7 +74,7 @@ def plain(text: str) -> str:
     return "".join(out)
 
 
-def _relative(path: str) -> str:
+def shorten_path(path: str) -> str:
     """Shorten a path against the working directory, without inventing `..` chains.
 
     Both sides are resolved before comparing, because on macOS the working
@@ -90,7 +90,15 @@ def _relative(path: str) -> str:
         return path
     if full.startswith(here + os.sep):
         return full[len(here) + 1 :]
-    return path
+    if not _Path(path).is_absolute():
+        return path
+    # normpath rather than resolve: it collapses the doubled separator a
+    # sqlite:////path URL leaves behind, without turning /tmp into /private/tmp
+    # and making every macOS path unrecognisable to the person reading it. It
+    # keeps a leading "//" though, which POSIX reserves and nobody means, so
+    # that one is collapsed here.
+    tidy = os.path.normpath(path)
+    return "/" + tidy.lstrip("/") if tidy.startswith("//") else tidy
 
 
 #: Where a target stops being readable and starts being a wall.
@@ -132,7 +140,7 @@ def render(
     # Truncated before the width is measured, not after: capping the width
     # alone leaves a long path or URL stretching its own line to whatever length
     # it happens to be, and the columns stop lining up.
-    targets = [_shorten(_relative(e.target)) for e in chosen]
+    targets = [_shorten(shorten_path(e.target)) for e in chosen]
     width = max((len(t) for t in targets), default=0)
     for effect, target in zip(chosen, targets, strict=False):
         mark = MARKS.get(effect.severity, "?")
@@ -140,7 +148,7 @@ def render(
         head = style(f"  {mark} {target:<{width}}", colour_name, enabled=enabled)
         detail = effect.detail or verb_of(effect.kind)
         where = (
-            style(f"  {_relative(str(effect.origin))}", "dim", enabled=enabled)
+            style(f"  {shorten_path(str(effect.origin))}", "dim", enabled=enabled)
             if effect.origin
             else ""
         )

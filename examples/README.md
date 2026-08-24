@@ -34,3 +34,16 @@ uv run pytest examples/test_purity.py -p consequence
 
 `safe.toml` is a policy worth reading on its own — it is the whole configuration
 surface in one file.
+
+## Checking the plan against reality
+
+`fidelity_check.py` is not a demo. It runs a program of your choosing twice, from
+identical copies of a seed directory — once under plan mode, once for real — and
+answers two questions: did the plan change anything on disk, and did it predict
+everything the real run did.
+
+```bash
+python examples/fidelity_check.py --seed ./a-copy-of-your-project -- -m mypkg up
+```
+
+Point it at a copy. The second run is real.

@@ -18,6 +18,7 @@ from consequence.effects import (
     FILE_READ,
     FILE_WRITE,
     PROCESS_SPAWN,
+    Severity,
 )
 from consequence.intercept import installed
 from consequence.policy import from_dict
@@ -334,3 +335,77 @@ def test_subprocess_run_still_returns_a_completed_process():
 def test_os_system_returns_a_status_in_plan_mode():
     with consequence.plan():
         assert os.system("echo hi") == 0
+
+
+def test_makedirs_on_a_directory_that_exists_is_not_reported(tmp_path):
+    """exist_ok=True on an existing directory does nothing, so the plan says nothing."""
+    with consequence.plan() as run:
+        os.makedirs(tmp_path, exist_ok=True)
+    assert not [e for e in run.effects if e.kind == DIR_CREATE]
+
+
+def test_makedirs_that_would_really_create_something_is_reported(tmp_path):
+    with consequence.plan() as run:
+        os.makedirs(tmp_path / "a" / "b", exist_ok=True)
+    assert [e for e in run.effects if e.kind == DIR_CREATE]
+    assert not (tmp_path / "a").exists()
+
+
+def test_mkdir_on_an_existing_directory_fails_the_way_it_really_would(tmp_path):
+    """The real os.mkdir raises here, and Path.mkdir(exist_ok=True) needs it to."""
+    with consequence.plan() as run, pytest.raises(FileExistsError):
+        os.mkdir(tmp_path)
+    assert not [e for e in run.effects if e.kind == DIR_CREATE]
+
+
+def test_pathlib_mkdir_with_exist_ok_is_quiet_about_a_directory_that_exists(tmp_path):
+    with consequence.plan() as run:
+        Path(tmp_path).mkdir(parents=True, exist_ok=True)
+    assert not [e for e in run.effects if e.kind == DIR_CREATE]
+
+
+def test_pathlib_mkdir_with_exist_ok_still_reports_a_real_creation(tmp_path):
+    with consequence.plan() as run:
+        Path(tmp_path / "deep" / "nested").mkdir(parents=True, exist_ok=True)
+    assert [e for e in run.effects if e.kind == DIR_CREATE]
+    assert not (tmp_path / "deep").exists()
+
+
+def test_writing_a_file_that_does_not_exist_is_a_creation(tmp_path):
+    """ "overwrite" promises something is being lost, and mode alone cannot tell."""
+    with consequence.plan() as run:
+        (tmp_path / "new.txt").write_text("first time")
+    [effect] = [e for e in run.effects if e.kind == FILE_WRITE]
+    assert effect.severity is Severity.CREATE
+    assert effect.detail == "create"
+
+
+def test_writing_a_file_that_does_exist_is_an_overwrite(tmp_path):
+    target = tmp_path / "old.txt"
+    target.write_text("was here")
+    with consequence.plan() as run:
+        target.write_text("replaced")
+    [effect] = [e for e in run.effects if e.kind == FILE_WRITE]
+    assert effect.severity is Severity.MODIFY
+    assert effect.detail == "overwrite"
+
+
+def test_a_file_created_earlier_in_the_run_is_an_overwrite_after_that(tmp_path):
+    """The overlay is the world the program sees, so the second write replaces."""
+    target = tmp_path / "twice.txt"
+    with consequence.plan() as run:
+        target.write_text("one")
+        target.write_text("two")
+    details = [e.detail for e in run.effects if e.kind == FILE_WRITE]
+    assert details == ["create", "overwrite"]
+
+
+def test_a_denial_names_the_file_the_way_the_report_does(tmp_path, monkeypatch):
+    """An absolute path buries the filename at the end of the line."""
+    monkeypatch.chdir(tmp_path)
+    policy = from_dict({"default": "deny", "filesystem": {"read": ["**"]}})
+    with pytest.raises(Denied) as caught, consequence.guard(policy):
+        Path("sub").mkdir()
+    message = str(caught.value)
+    assert "sub" in message
+    assert str(tmp_path) not in message

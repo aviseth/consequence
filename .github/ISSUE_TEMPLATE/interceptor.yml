@@ -1,0 +1,30 @@
+name: Something is not intercepted
+description: A way of reaching the outside world that consequence does not see
+labels: ["interceptor"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: this is in-process, not a sandbox. A C extension calling
+        `unlink(2)`, a `ctypes` call into libc, or a fork that re-execs are
+        documented limitations rather than bugs. Anything reachable through the
+        standard library is fair game.
+  - type: input
+    id: call
+    attributes:
+      label: The call that is not seen
+      placeholder: "os.sendfile"
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: A program that uses it
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything you know about where it should be intercepted
+      description: Which layer, and what it would take to simulate in plan mode

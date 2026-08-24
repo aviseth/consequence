@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import builtins
 import contextlib
+import errno
 import io
 import os
 import shutil
@@ -191,9 +192,19 @@ def _make_open(real: Callable[..., Any]) -> Callable[..., Any]:
         if isinstance(path, bytes):
             path = path.decode("utf-8", "replace")
         kind, severity = _open_kind(mode)
+        detail = _open_detail(mode, kind)
+        if severity is Severity.MODIFY and kind is fx.FILE_WRITE:
+            # "overwrite" is a promise that something is being lost. Mode alone
+            # cannot tell: open(path, "w") creates a new file just as often as it
+            # replaces one, and calling both an overwrite makes the destructive
+            # case impossible to pick out of the report.
+            with _Internal():
+                exists = session.overlay.exists(path)
+            if not exists:
+                severity, detail = Severity.CREATE, "create"
 
         with _Internal():
-            effect = session.check(kind, path, _open_detail(mode, kind), severity=severity)
+            effect = session.check(kind, path, detail, severity=severity)
         if not session.planning:
             session.enforce(effect)
             return real(file, mode, *args, **kwargs)
@@ -249,6 +260,53 @@ def _simple(kind: str, arg: int = 0, detail: str = "", planned: Any = None) -> C
         return replacement
 
     return wrap
+
+
+def _already_a_directory(session: Any, target: str) -> bool:
+    with _Internal():
+        return session.overlay.exists(target) and os.path.isdir(target)
+
+
+def _make_mkdir(real: Callable[..., Any], name: str) -> Callable[..., Any]:
+    """Directory creation, which needs to fail the way the real thing fails.
+
+    ``os.mkdir`` raises FileExistsError on a directory that is already there,
+    and callers depend on it: both ``Path.mkdir(exist_ok=True)`` and
+    ``os.makedirs(exist_ok=True)`` are implemented by catching that exception.
+    A plan that quietly returns None instead swallows the signal, so the caller
+    believes it created something and the report grows a line for a directory
+    that has existed for months.
+
+    Found by planning a real migration tool, whose plan claimed it would create
+    the directory the database was already sitting in.
+    """
+
+    def replacement(path: Any, *rest: Any, **kwargs: Any) -> Any:
+        session = active()
+        if session is None or _reentrant():
+            return real(path, *rest, **kwargs)
+        text = os.fspath(path) if isinstance(path, os.PathLike) else str(path)
+
+        if _already_a_directory(session, text):
+            if name == "makedirs" and kwargs.get("exist_ok", False):
+                # Genuinely a no-op. Not delegating to the real makedirs,
+                # because it reaches its decision by calling the patched
+                # os.mkdir, and that inner call is what would be recorded.
+                return None
+            if session.planning:
+                raise FileExistsError(errno.EEXIST, os.strerror(errno.EEXIST), text)
+            return real(path, *rest, **kwargs)
+
+        with _Internal():
+            effect = session.check(fx.DIR_CREATE, text)
+        session.enforce(effect)
+        if session.planning:
+            with _Internal():
+                session.overlay.mkdir(text)
+            return None
+        return real(path, *rest, **kwargs)
+
+    return replacement
 
 
 def _simulate(session: Any, kind: str, target: str, args: tuple[Any, ...]) -> None:
@@ -536,13 +594,14 @@ def install() -> None:
             ("unlink", fx.FILE_DELETE),
             ("rmdir", fx.DIR_DELETE),
             ("removedirs", fx.DIR_DELETE),
-            ("mkdir", fx.DIR_CREATE),
-            ("makedirs", fx.DIR_CREATE),
             ("truncate", fx.FILE_WRITE),
             ("chmod", fx.PERM_CHANGE),
         ):
             if hasattr(os, name):
                 _patch(os, name, _simple(kind)(getattr(os, name)))
+
+        for name in ("mkdir", "makedirs"):
+            _patch(os, name, _make_mkdir(getattr(os, name), name))
 
         for name in ("rename", "replace", "link", "symlink"):
             if hasattr(os, name):

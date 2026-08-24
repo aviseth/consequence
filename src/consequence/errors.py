@@ -9,6 +9,16 @@ class ConsequenceError(Exception):
     """Base class for everything raised here."""
 
 
+def _where(effect: Effect) -> str:
+    """The call site, with the file shortened against the working directory."""
+    from consequence.report import shorten_path
+
+    frame = effect.origin
+    if frame is None:  # pragma: no cover - callers check first
+        return ""
+    return f"{shorten_path(frame.file)}:{frame.line} in {frame.function}"
+
+
 class Denied(ConsequenceError):
     """Policy refused an effect.
 
@@ -18,8 +28,8 @@ class Denied(ConsequenceError):
     """
 
     def __init__(self, effect: Effect) -> None:
-        where = f" at {effect.origin}" if effect.origin else ""
-        super().__init__(f"refused to {effect.describe()}{where}: {effect.reason}")
+        where = f" at {_where(effect)}" if effect.origin else ""
+        super().__init__(f"refused to {effect.describe(short=True)}{where}: {effect.reason}")
         self.effect = effect
 
 
@@ -33,8 +43,9 @@ class Blocked(ConsequenceError):
     """
 
     def __init__(self, effect: Effect, hint: str = "") -> None:
-        where = f" at {effect.origin}" if effect.origin else ""
+        where = f" at {_where(effect)}" if effect.origin else ""
         super().__init__(
-            f"plan mode cannot simulate: {effect.describe()}{where}." + (f" {hint}" if hint else "")
+            f"plan mode cannot simulate: {effect.describe(short=True)}{where}."
+            + (f" {hint}" if hint else "")
         )
         self.effect = effect

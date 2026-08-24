@@ -131,6 +131,13 @@ def _run_target(args: argparse.Namespace) -> BaseException | None:
     argv = list(args.args)
     if argv and argv[0] == "--":
         argv = argv[1:]
+    if args.module and args.script:
+        # argparse removes the first bare "--" itself, and the script positional
+        # then swallows what was meant to be the program's first argument. So
+        # `consequence plan -m pkg -- --url X up` reached pkg as `X up`, with the
+        # flag silently gone. With -m there is no script, so whatever landed
+        # there belongs to the program.
+        argv = [args.script, *argv]
     try:
         if args.module:
             sys.argv = [args.module, *argv]
