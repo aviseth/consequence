@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="972" height="410" viewBox="0 0 972 410" font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="13.5">
+  <rect width="972" height="410" rx="10" fill="#1c2128"/>
+  <rect width="972" height="34" rx="10" fill="#22272e"/>
+  <rect y="24" width="972" height="10" fill="#22272e"/>
+  <circle cx="20" cy="17" r="6" fill="#ff5f57"/><circle cx="40" cy="17" r="6" fill="#febc2e"/><circle cx="60" cy="17" r="6" fill="#28c840"/>
+  <g fill="#d8dee9">
+    <text x="18" y="66"><tspan fill="#7ee787" xml:space="preserve">$</tspan><tspan  xml:space="preserve"> </tspan><tspan font-weight="bold" xml:space="preserve">consequence audit --log run.jsonl cleanup_agent.py</tspan></text>
+    <text x="18" y="86"></text>
+    <text x="18" y="106"><tspan font-weight="bold" xml:space="preserve">consequence audit  ·  cleanup_agent.py</tspan></text>
+    <text x="18" y="126"></text>
+    <text x="18" y="146"><tspan fill="#e3b341" xml:space="preserve">  &gt; git            </tspan><tspan  xml:space="preserve">  git push --force origin main                </tspan><tspan opacity="0.55" xml:space="preserve">  cleanup_agent.py:35 in main</tspan><tspan  xml:space="preserve">  </tspan><tspan fill="#e3b341" xml:space="preserve">EXTERNAL</tspan></text>
+    <text x="18" y="166"><tspan fill="#e3b341" xml:space="preserve">  &gt; git            </tspan><tspan  xml:space="preserve">  git push --force origin main                </tspan><tspan opacity="0.55" xml:space="preserve">  cleanup_agent.py:35 in main</tspan><tspan  xml:space="preserve">  </tspan><tspan fill="#e3b341" xml:space="preserve">EXTERNAL</tspan></text>
+    <text x="18" y="186"><tspan fill="#ff7b72" xml:space="preserve">  - config         </tspan><tspan  xml:space="preserve">  delete directory                            </tspan><tspan opacity="0.55" xml:space="preserve">  cleanup_agent.py:25 in main</tspan><tspan  xml:space="preserve">  </tspan><tspan fill="#ff7b72" xml:space="preserve">DESTROY</tspan></text>
+    <text x="18" y="206"><tspan fill="#ff7b72" xml:space="preserve">  - app.toml       </tspan><tspan  xml:space="preserve">  delete                                      </tspan><tspan opacity="0.55" xml:space="preserve">  cleanup_agent.py:25 in main</tspan><tspan  xml:space="preserve">  </tspan><tspan fill="#ff7b72" xml:space="preserve">DESTROY</tspan></text>
+    <text x="18" y="226"><tspan fill="#ff7b72" xml:space="preserve">  - config         </tspan><tspan  xml:space="preserve">  delete directory                            </tspan><tspan opacity="0.55" xml:space="preserve">  cleanup_agent.py:25 in main</tspan><tspan  xml:space="preserve">  </tspan><tspan fill="#ff7b72" xml:space="preserve">DESTROY</tspan></text>
+    <text x="18" y="246"><tspan fill="#ff7b72" xml:space="preserve">  - keep-me.log    </tspan><tspan  xml:space="preserve">  delete                                      </tspan><tspan opacity="0.55" xml:space="preserve">  cleanup_agent.py:26 in main</tspan><tspan  xml:space="preserve">  </tspan><tspan fill="#ff7b72" xml:space="preserve">DESTROY</tspan></text>
+    <text x="18" y="266"><tspan fill="#ff7b72" xml:space="preserve">  - app.db         </tspan><tspan  xml:space="preserve">  drop table sessions                         </tspan><tspan opacity="0.55" xml:space="preserve">  cleanup_agent.py:30 in main</tspan><tspan  xml:space="preserve">  </tspan><tspan fill="#ff7b72" xml:space="preserve">DESTROY</tspan></text>
+    <text x="18" y="286"><tspan fill="#56d4dd" xml:space="preserve">  ~ config/app.toml</tspan><tspan  xml:space="preserve">  overwrite                                   </tspan><tspan opacity="0.55" xml:space="preserve">  cleanup_agent.py:22 in main</tspan></text>
+    <text x="18" y="306"><tspan fill="#56d4dd" xml:space="preserve">  ~ app.db         </tspan><tspan  xml:space="preserve">  delete from audit_log                       </tspan><tspan opacity="0.55" xml:space="preserve">  cleanup_agent.py:31 in main</tspan></text>
+    <text x="18" y="326"></text>
+    <text x="18" y="346"><tspan font-weight="bold" xml:space="preserve">Performed:</tspan><tspan  xml:space="preserve"> </tspan><tspan fill="#56d4dd" xml:space="preserve">2 changed</tspan><tspan  xml:space="preserve">, </tspan><tspan fill="#ff7b72" xml:space="preserve">5 destroyed</tspan><tspan  xml:space="preserve">, </tspan><tspan fill="#e3b341" xml:space="preserve">2 external</tspan><tspan  xml:space="preserve">.</tspan></text>
+    <text x="18" y="366"><tspan opacity="0.55" xml:space="preserve">written to run.jsonl</tspan></text>
+    <text x="18" y="386"><tspan  xml:space="preserve">Everything up-to-date</tspan></text>
+  </g>
+</svg>

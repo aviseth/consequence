@@ -1,0 +1,21 @@
+# What this program is allowed to do. Anything not listed is refused.
+#
+# Deny always beats allow, so a rule added later cannot quietly widen an
+# earlier one.
+
+default = "deny"
+
+[filesystem]
+read = ["**"]
+write = ["./build/**", "./config/*.toml"]
+delete = ["./build/**"]
+
+[process]
+allow = ["git status*", "git diff*"]
+
+[network]
+allow = ["api.github.com"]
+
+[database]
+allow = ["delete from audit_log", "insert into *"]
+allow_schema_changes = false

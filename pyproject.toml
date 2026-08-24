@@ -1,0 +1,83 @@
+[build-system]
+requires = ["hatchling>=1.27"]  # license-files as an array needs PEP 639 support
+build-backend = "hatchling.build"
+
+[project]
+name = "consequence"
+version = "0.1.0"
+description = "See what your code would do before it does it. A plan mode, a policy layer and an audit log for filesystem, process, network and database side effects."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+authors = [{ name = "Avi Seth", email = "avi@crispa.ai" }]
+keywords = [
+    "sandbox", "dry-run", "side-effects", "safety", "agents", "ai-agents",
+    "capabilities", "audit", "policy", "guardrails",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Security",
+    "Topic :: Software Development :: Testing",
+    "Topic :: System :: Monitoring",
+    "Typing :: Typed",
+]
+dependencies = ["tomli>=2.0; python_version<'3.11'"]
+
+[project.urls]
+Homepage = "https://github.com/aviseth/consequence"
+Repository = "https://github.com/aviseth/consequence"
+Changelog = "https://github.com/aviseth/consequence/blob/main/CHANGELOG.md"
+Issues = "https://github.com/aviseth/consequence/issues"
+
+[project.scripts]
+consequence = "consequence.cli:main"
+
+[project.entry-points.pytest11]
+consequence = "consequence.pytest_plugin"
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-cov>=5", "ruff>=0.7", "mypy>=1.11"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/consequence"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "PTH", "C4"]
+
+[tool.ruff.lint.per-file-ignores]
+# These modules work at the os layer deliberately. They are the functions this
+# package intercepts, and routing through pathlib here would build Path objects
+# on a hot path and, worse, run the library's own bookkeeping through code it has
+# just patched.
+"src/consequence/overlay.py" = ["PTH"]
+"src/consequence/policy.py" = ["PTH"]
+"src/consequence/intercept.py" = ["PTH"]
+"src/consequence/databases.py" = ["PTH"]
+# The tests call the low-level APIs on purpose, because those are precisely the
+# functions being intercepted. Rewriting them to pathlib would test a different
+# code path from the one under test.
+"tests/test_intercept.py" = ["PTH", "SIM115"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+files = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q -p no:consequence"

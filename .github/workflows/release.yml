@@ -1,0 +1,92 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # A tag can be pushed at a commit whose CI never ran or went red. Publishing
+    # is the one irreversible step here, so the whole suite runs again on the way
+    # out.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          # No cache anywhere in the release path.
+          enable-cache: false
+      # --locked: fail rather than quietly re-resolve if pyproject.toml and
+      # uv.lock disagree. A release should install what was tested.
+      - run: uv sync --locked
+      - run: uv run pytest -q
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          # No cache on the job that builds what gets published. A restored
+          # cache can contain wheels built earlier, and this is the one job
+          # where what goes in the artifact should come only from this checkout.
+          enable-cache: false
+      - name: the tag has to match the version being built
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version="$(uv run --no-project --with tomli python -c \
+            'import tomli,pathlib;print(tomli.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
+          if [ "$tag" != "$version" ]; then
+            echo "tag $GITHUB_REF_NAME would publish version $version" >&2
+            exit 1
+          fi
+      - run: uv build
+      - name: the wheel that gets uploaded has to install and run on its own
+        # uv sync installs from the checkout in editable mode, so the tests above
+        # never touch the built distribution. This does.
+        run: |
+          uv venv /tmp/verify
+          uv pip install --python /tmp/verify/bin/python dist/*.whl
+          /tmp/verify/bin/consequence --version
+          /tmp/verify/bin/python -c "import consequence; print(consequence.__version__)"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    # The environment gates this on a human approval and on the ref being a tag.
+    environment: pypi
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dist
+          path: dist/
+      # TEMPORARY: token auth, only to create the project on PyPI. A trusted
+      # publisher cannot be registered for a project that does not exist yet,
+      # and there is no API for the registration, so the first upload has to
+      # carry a credential.
+      #
+      # Once this has published, register the trusted publisher and put the
+      # OIDC block back: it needs no stored secret and it is the only way to get
+      # PEP 740 provenance attestations, which a token cannot produce.
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          # Not available under token auth; left explicit so the reason is on record.
+          attestations: false
